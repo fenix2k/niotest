@@ -1,3 +1,5 @@
+package server;
+
 import java.nio.channels.SelectionKey;
 import java.util.HashMap;
 import java.util.Map;

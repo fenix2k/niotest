@@ -1,3 +1,5 @@
+package network;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
@@ -5,39 +7,38 @@ import java.nio.channels.SocketChannel;
 import java.util.Iterator;
 import java.util.LinkedList;
 
-// Класс экземпляра клиента на сервере
-public class NioServerClient {
+public class MessageIO {
     private static final int DEFAULT_BUFFER_SIZE = 512; // константа, размер буфера по умолчанию
-    private static final int BYTES_MESSAGE_LENGTH = 4; // константа, кол-ва байт для передачи длинны сообщения
-    private static final int DEFAULT_MESSAGE_SIZE = 512 - BYTES_MESSAGE_LENGTH; // константа, размер сообщения по умолчанию
+    private static final int HEADER_LENGTH = 12; // константа, кол-ва байт для передачи длинны сообщения
+    private static final int DEFAULT_MESSAGE_SIZE = 512 - HEADER_LENGTH; // константа, размер сообщения по умолчанию
 
     private final SelectionKey clientKey; // ключ
     private final int MESSAGE_SIZE; // размер сообщения
     private final int BUFFER_SIZE; // размер буфера
     private final SocketChannel clientChannel; // канал клиента
-    private final LinkedList<ByteBuffer> outgoingBuffers = new LinkedList<ByteBuffer>(); // очередь отправки
 
-    //private ByteBuffer readBuffer; // буфер получения
+    public final LinkedList<Message> outgoingBuffer = new LinkedList<>(); // очередь отправки
+
     private ByteBuffer writeBuffer; // буфер отправки
 
-    private Message message; // текущий сообщение
+    private Message message; // текущее сообщение
 
 
-    public NioServerClient(SelectionKey clientKey) {
+    public MessageIO(SelectionKey clientKey) {
         this(clientKey, DEFAULT_MESSAGE_SIZE, DEFAULT_BUFFER_SIZE);
     }
 
-    public NioServerClient(SelectionKey clientKey, int MESSAGE_SIZE, int BUFFER_SIZE) {
+    public MessageIO(SelectionKey clientKey, int MESSAGE_SIZE, int BUFFER_SIZE) {
         this.clientKey = clientKey;
         this.MESSAGE_SIZE = MESSAGE_SIZE;
         this.BUFFER_SIZE = BUFFER_SIZE;
-        //readBuffer = ByteBuffer.allocate(this.BUFFER_SIZE);
+
         writeBuffer = ByteBuffer.allocate(this.BUFFER_SIZE);
         message = new Message(this.BUFFER_SIZE);
         clientChannel = (SocketChannel) this.clientKey.channel();
     }
 
-    public void read() throws IOException {
+    public Message read() throws IOException {
         int numRead; // будет хранить кол-во считанных байтов или статус
         int position; // будт хранить текущую позицию буфера
 
@@ -47,62 +48,61 @@ public class NioServerClient {
         } catch (IOException e) { // ощибка чтения
             this.closeChannel();
             System.out.println("Client unexpectedly disconnected");
-            return;
+            return null;
         }
 
         if(numRead == -1) {
-            // Штатно закрылся канал
+            // Штатно закрылся канал. Завершаем сессию
             this.closeChannel();
             this.message.clear();
             System.out.println("Client closed connection");
-            return;
+            return null;
         }
         if(numRead == 0) {
-            // Хрень какаято
+            // Пустое сообщение. Завершаем сессию
             this.closeChannel();
             this.message.clear();
             System.out.println("No data received");
-            return;
+            return null;
         }
-        if(position < BYTES_MESSAGE_LENGTH) {
-            // размер сообщения пришел не полностью
-            System.out.println("Packet too small: packet size < 4");
-            return;
+        if(position < HEADER_LENGTH) {
+            // размер сообщения пришел не полностью. Ждём дальше...
+            System.out.println("Packet too small: packet size < 12");
+            return null;
         }
 
-        this.message.readBuffer.position(0); // устанавливаем буфер в начало что заного прочитать сообщение
+        // длинна сообщения полностью дошла
+        this.message.readBuffer.position(0); // устанавливаем буфер в начало чтобы заного прочитать сообщение
         int messageLength = this.message.readBuffer.getInt(); // читаем длинну сообщения
 
-        if(messageLength > (position - BYTES_MESSAGE_LENGTH)) {
-            // сообщение пришло не полностью
-            this.message.readBuffer.position(position);
+        if(messageLength > (position - 4)) {
+            // сообщение пришло не полностью. Ждём остальное...
+            this.message.readBuffer.position(position); // устанавливаем конечный элемент буфера
             System.out.println("Packet too small: message not full. len=" + messageLength + " num=" + numRead);
-            return;
+            return null;
         }
 
-        byte[] messageByteArray = new byte[messageLength]; // создаём массив для сохранения сообщения
-        this.message.readBuffer.get(messageByteArray); // читаем сообщение из буфера и сохраняем в массив байтов
+        // Сообщение полностью дошло
+        message.readBuffer(messageLength); // копируем сообщение в объект сообщения
 
-        System.out.println("Message: " + new String(messageByteArray, "UTF-8"));
+        // тут косяк!
+        //message.readBuffer.clear(); // после успешной отправки затираем сообщение
 
-        message.setMessage(messageByteArray);
-
-        outgoingBuffers.add(message.getByteBufferMessage()); // кладем готовое сообщениев массий исходящих сообщений
-        this.clientKey.interestOps(SelectionKey.OP_WRITE); // выставляем флаг о том что необходимо отправить данные
-        message.clear();
+        return message;
     }
 
     public void write() {
-        //String attachment = (String)clientKey.attachment();
-        Iterator<ByteBuffer> iterator = this.outgoingBuffers.iterator(); // формируем итератор исходящей очереди
+        Iterator<Message> iterator = this.outgoingBuffer.iterator(); // формируем итератор исходящей очереди
         int numWrite = 0; // будет хранить кол-во записанных байтов
 
         while (iterator.hasNext()) { // проходим по элементам исходящей очереди
-            ByteBuffer bb = iterator.next(); // запоминаем текущий элемент
+            Message msg = iterator.next(); // запоминаем текущий элемент
+            ByteBuffer bb = msg.getByteBufferMessage();
+
             if (bb.position() < bb.limit()) { // проверям корректность буфера
                 try {
                     numWrite = this.clientChannel.write(bb); // записываем в канал данные из буфера и получам кол-во записанных байтов
-                    System.out.println("Message was send");
+                    System.out.println("network.Message was send");
                 } catch (IOException e) {
                     System.out.println("Client was disconnected");
                     this.closeChannel();
@@ -128,7 +128,7 @@ public class NioServerClient {
                 }
             }
             // если список буферов пуст, то есть, записали все, то переключаемся в режим "хочу читать!"
-            if (this.outgoingBuffers.size() == 0) {
+            if (this.outgoingBuffer.size() == 0) {
                 this.clientKey.interestOps(SelectionKey.OP_READ);
             }
         }
@@ -136,7 +136,7 @@ public class NioServerClient {
     }
 
     // закрывает канал и отменяет ключ
-    private void closeChannel() {
+    public void closeChannel() {
         clientKey.cancel();
         try {
             if(this.clientChannel.isConnected())
@@ -145,5 +145,4 @@ public class NioServerClient {
             e.printStackTrace();
         }
     }
-
 }

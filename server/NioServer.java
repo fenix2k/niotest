@@ -1,3 +1,5 @@
+package server;
+
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.channels.SelectionKey;
@@ -7,12 +9,11 @@ import java.nio.channels.SocketChannel;
 import java.util.Iterator;
 import java.util.concurrent.atomic.AtomicReference;
 
-// Класс сервера
 public class NioServer implements Runnable {
     private final String IP; // адрес сервера
     private final int PORT; // порт сервера
 
-    private final AtomicReference<State> state = new AtomicReference<>(State.STOPPED); // переключатель состояния сервера
+    private static final AtomicReference<NioServer.State> state = new AtomicReference<>(NioServer.State.STOPPED); // переключатель состояния сервера
 
     private enum State {STOPPED, STOPPING, RUNNING} // возможные состояния сервера
 
@@ -23,18 +24,14 @@ public class NioServer implements Runnable {
     public NioServer(String ip, int port) {
         this.IP = ip;
         this.PORT = port;
-        this.run(); // запуск в томже потоке
+        //this.run(); // запуск в томже потоке
     }
 
-    public static void main(String[] args) {
-        // запуск экземпляра сервера
-        new NioServer(8000);
-    }
 
     @Override
     public void run() {
         // проверяем запущен ли сервер. Если нет закускаем.
-        if(!state.compareAndSet(State.STOPPED, State.RUNNING)) {
+        if (!state.compareAndSet(NioServer.State.STOPPED, NioServer.State.RUNNING)) {
             System.out.println("Server already started.");
             return;
         }
@@ -52,7 +49,7 @@ public class NioServer implements Runnable {
             System.out.println("Server is started.");
 
             // пока переключатель состояния в RUNNING продолжаем слушать порт
-            while(state.get() == State.RUNNING) {
+            while (state.get() == NioServer.State.RUNNING) {
                 selector.select(100); // ждём входящих сообщений от клиентов
                 Iterator<SelectionKey> iterator = selector.selectedKeys().iterator(); // получеам итератор массива ключей подключения
 
@@ -60,16 +57,16 @@ public class NioServer implements Runnable {
                     SelectionKey key = iterator.next(); // последовательно перебираем каналы (ключи)
                     iterator.remove();
 
-                    if(!key.isValid()) { // если ключ истёк прерываем текущую итерацию
+                    if (!key.isValid()) { // если ключ истёк прерываем текущую итерацию
                         System.out.println("Key is not valid");
                         continue;
                     }
 
                     if (key.isValid() && key.isConnectable()) { // не используется в однопоточной версии
-                        ((SocketChannel)key.channel()).finishConnect();
+                        ((SocketChannel) key.channel()).finishConnect();
                     }
 
-                    if(key.isValid() && key.isAcceptable()) { // если установлен флаг OP_ACCEPT
+                    if (key.isValid() && key.isAcceptable()) { // если установлен флаг OP_ACCEPT
                         SocketChannel clientChannel = serverChannel.accept(); // создаём канал с клиентом
                         clientChannel.configureBlocking(false); // устанавливаем не блокирующий режим
                         clientChannel.socket().setTcpNoDelay(true); // отключаем алгоритм оптимизации
@@ -77,12 +74,12 @@ public class NioServer implements Runnable {
                         this.registerNewClient(clientKey); // регистрируем сессию клиента для дальнейшей работы
                     }
 
-                    if(key.isValid() && key.isReadable()) { // если установлен флаг OP_READ
+                    if (key.isValid() && key.isReadable()) { // если установлен флаг OP_READ
                         NioServerClient client = getClientByKey(key); // определяем сессию клиента по ключу
                         client.read(); // читаем данные
                     }
 
-                    if(key.isValid() && key.isWritable()) { // если установлен флаг OP_WRITE
+                    if (key.isValid() && key.isWritable()) { // если установлен флаг OP_WRITE
                         NioServerClient client = getClientByKey(key); // определяем сессию клиента по ключу
                         client.write(); // отправляем данные
                     }
@@ -95,7 +92,7 @@ public class NioServer implements Runnable {
                 selector.close(); // закрываем селектор
                 serverChannel.socket().close(); // закрываем сокет канала сервера
                 serverChannel.close(); // закрываем канал сервера
-                state.set(State.STOPPED); // устанавливает статус сервера в STOPPED
+                state.set(NioServer.State.STOPPED); // устанавливает статус сервера в STOPPED
                 System.out.println("Server is stopped.");
             } catch (IOException e) {
                 e.printStackTrace();

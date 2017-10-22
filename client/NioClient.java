@@ -1,10 +1,8 @@
+package client;
+
 import java.io.*;
-import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.ByteBuffer;
-import java.nio.channels.SelectionKey;
-import java.nio.channels.Selector;
-import java.nio.channels.SocketChannel;
 
 // Клиент
 public class NioClient implements Runnable {
@@ -39,7 +37,9 @@ public class NioClient implements Runnable {
 
         this.consoleInput = new BufferedReader(new InputStreamReader(System.in));
 
-        new Thread(new Receiver()).start();
+        Thread receiver = new Thread(new Receiver());
+        receiver.setDaemon(true);
+        receiver.start();
         this.run();
     }
 
@@ -71,13 +71,17 @@ public class NioClient implements Runnable {
                     continue;
                 }
 
-                int messageLength = userMessage.length();
-                byte[] messageByteArray = userMessage.getBytes("UTF-8");
-                this.dos.writeInt(messageLength);
+                byte[] messageBody = userMessage.getBytes("UTF-8");
+                int messageLength = messageBody.length + 4 + 4;
+                this.dos.writeInt(messageLength); // отправляем длинну пакета
+                this.dos.writeInt(0); // отправляем идентификатор пакета
+                this.dos.writeInt(0); // отправляем тип пакета
 
-                int middlePos = messageByteArray.length - (messageByteArray.length/2);
-                this.dos.write(messageByteArray,0, middlePos);
-                this.dos.write(messageByteArray, middlePos, messageByteArray.length - middlePos);
+                /*int middlePos = messageBody.length - (messageBody.length/2);
+                this.dos.write(messageBody,0, middlePos);
+                this.dos.write(messageBody, middlePos, messageBody.length - middlePos);*/
+
+                this.dos.write(messageBody);
                 this.dos.flush();
 
                 if("quit".equals(userMessage.toLowerCase()))
@@ -88,6 +92,7 @@ public class NioClient implements Runnable {
                 System.exit(0);
             }
         }
+        System.out.println("Client is closed.");
     }
 
     private class Receiver implements Runnable {
@@ -106,16 +111,22 @@ public class NioClient implements Runnable {
 
                 int read = 0;
                 int messageLength = 0;
-                byte[] messageByteArray = null;
+                int messageId = 0;
+                int messageType = 0;
+                byte[] messageBody = null;
 
                 try {
                    messageLength =  dis.readInt();
                    if(messageLength > 0) {
-                       messageByteArray = new byte[messageLength];
-                       read = dis.read(messageByteArray);
+                       messageId = dis.readInt();
+                       messageType = dis.readInt();
+                       messageBody = new byte[messageLength];
+                       read = dis.read(messageBody);
                    }
 
-                   System.out.println("Server send: " + new String(messageByteArray, 0, read, "UTF-8"));
+                   System.out.println("Server send: id=" + messageId
+                           + " type=" + messageType
+                           + " msg=" + new String(messageBody, 0, read, "UTF-8"));
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
