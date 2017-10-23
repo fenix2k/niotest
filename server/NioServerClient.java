@@ -33,6 +33,7 @@ public class NioServerClient implements Runnable {
         }
     }
 
+    // метод-адаптер. читаем пакет из канала
     public void read() {
         Message message;
 
@@ -45,6 +46,7 @@ public class NioServerClient implements Runnable {
         }
     }
 
+    // метод-адаптер. пишет пакет из канал
     public void write() {
         messageIO.write();
     }

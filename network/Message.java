@@ -33,19 +33,21 @@ public class Message {
         return messageBody;
     }
 
+    // метод читает данные из readBuffer в соответствующие поля класса
     public void readBuffer(int messageLength) {
-        this.messageLength = messageLength;
+        this.messageLength = messageLength; // запонимаем длинну пакета
 
-        this.readBuffer.position(4);
-        this.messageId = this.readBuffer.getInt();
-        this.messageType = this.readBuffer.getInt();
+        this.readBuffer.position(4); // устанавливаем позицию на 2й байт
+        this.messageId = this.readBuffer.getInt(); // запонимаем ID пакета
+        this.messageType = this.readBuffer.getInt(); // запоминаем тип пакета
 
-        this.messageBody = new byte[this.messageLength - 4 - 4];
-        this.readBuffer.get(this.messageBody);
+        this.messageBody = new byte[this.messageLength - 4 - 4]; // выделяем память под тело сообщения
+        this.readBuffer.get(this.messageBody); // запоминаем тело сообщения
 
-        this.readBuffer.clear();
+        this.readBuffer.clear(); // очищаем буфер
     }
 
+    // преобразовываем Message в ByteBuffer
     public ByteBuffer getByteBufferMessage() {
         ByteBuffer writeBuffer = ByteBuffer.allocate(4 + 4 + 4 + this.messageLength);
         byte[] length = ByteBuffer.allocate(4).putInt(this.messageLength).array(); // формирует byte[] из длинны сообщения
@@ -62,6 +64,7 @@ public class Message {
         return writeBuffer;
     }
 
+    // очищаем поля класса
     public void clear() {
         this.messageLength = 0;
         this.messageId = 0;

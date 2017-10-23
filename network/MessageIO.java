@@ -85,9 +85,6 @@ public class MessageIO {
         // Сообщение полностью дошло
         message.readBuffer(messageLength); // копируем сообщение в объект сообщения
 
-        // тут косяк!
-        //message.readBuffer.clear(); // после успешной отправки затираем сообщение
-
         return message;
     }
 
@@ -97,7 +94,7 @@ public class MessageIO {
 
         while (iterator.hasNext()) { // проходим по элементам исходящей очереди
             Message msg = iterator.next(); // запоминаем текущий элемент
-            ByteBuffer bb = msg.getByteBufferMessage();
+            ByteBuffer bb = msg.getByteBufferMessage(); // преобразовываем в bytebuffer
 
             if (bb.position() < bb.limit()) { // проверям корректность буфера
                 try {
