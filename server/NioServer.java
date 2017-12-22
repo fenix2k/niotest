@@ -1,5 +1,9 @@
 package server;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+
 import java.io.IOException;
 import java.net.BindException;
 import java.net.InetSocketAddress;
@@ -7,21 +11,23 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 public class NioServer implements Runnable {
+    private static final Logger logger = LoggerFactory.getLogger(NioServer.class.getName());
+
     private final String IP; // адрес сервера
     private final int PORT; // порт сервера
+    private final int clientThreadCount;
+    private final int clientThreadMaxCount;
+    private final int clientThreadKeepalive;
 
     private static final AtomicReference<NioServer.State> state = new AtomicReference<>(NioServer.State.STOPPED); // переключатель состояния сервера
 
     private enum State {STOPPED, STOPPING, RUNNING} // возможные состояния сервера
-
-    private static Logger logger = Logger.getLogger(NioServer.class.getName()); // логгер
 
     public NioServer(int port) {
         this("localhost", port);
@@ -30,20 +36,33 @@ public class NioServer implements Runnable {
     public NioServer(String ip, int port) {
         this.IP = ip;
         this.PORT = port;
+        AppSettings config = AppSettings.getInstance();
+        this.clientThreadCount = config.CLIENT_THREAD_COUNT;
+        this.clientThreadMaxCount = config.CLIENT_THREAD_MAX_COUNT;
+        this.clientThreadKeepalive = config.CLIENT_THREAD_KEEPALIVE;
     }
-
 
     @Override
     public void run() {
+        Thread.currentThread().setName("NioServer");
         // проверяем запущен ли сервер. Если нет закускаем.
         if (!state.compareAndSet(NioServer.State.STOPPED, NioServer.State.RUNNING)) {
-            logger.warning("Server already started");
-            System.out.println("Server already started");
+            logger.info("Server already started");
             return;
         }
 
         Selector selector = null;   // селектор
         ServerSocketChannel serverChannel = null; // канал сервера
+
+        // создаём менеджер потоков для обработки вх. сообщений в отдельных потоках
+        final ThreadPoolExecutor executor = new ThreadPoolExecutor(
+                this.clientThreadCount, // обычное кол-во потоков в пуле
+                this.clientThreadMaxCount, // макс. кол-во потоков в пуле
+                this.clientThreadKeepalive, // время которое живёт ничего не делающий поток
+                TimeUnit.MILLISECONDS, // единицы измерения времени
+                new LinkedBlockingQueue<Runnable>(), // тип экземпляра
+                new ThreadPoolExecutor.CallerRunsPolicy() // политика
+        );
 
         try {
             selector = Selector.open(); // создаём селектор
@@ -52,18 +71,7 @@ public class NioServer implements Runnable {
             serverChannel.configureBlocking(false); // устанавливаем не блокирующий режим
             serverChannel.register(selector, SelectionKey.OP_ACCEPT); // регистрируем канал сервера в селекторе и устанавливаем флаг ожидания запроса на соединение
 
-            System.out.println("Server is started on " + this.IP + ":" + this.PORT);
-            logger.fine("Server is started on " + this.IP + ":" + this.PORT);
-
-            // создаём менеджер потоков для обработки вх. сообщений в отдельных потоках
-            final ThreadPoolExecutor executor = new ThreadPoolExecutor(
-                    5, // обычное кол-во потоков в пуле
-                    10, // макс. кол-во потоков в пуле
-                    1000, // время которое живёт ничего не делающий поток
-                    TimeUnit.MILLISECONDS, // единицы измерения времени
-                    new LinkedBlockingQueue<Runnable>(), // тип экземпляра
-                    new ThreadPoolExecutor.CallerRunsPolicy() // политика
-            );
+            logger.info("Server is started on {}:{}", this.IP, this.PORT);
 
             // пока переключатель состояния в RUNNING продолжаем слушать порт
             while (state.get() == NioServer.State.RUNNING) {
@@ -75,7 +83,7 @@ public class NioServer implements Runnable {
                     iterator.remove(); // удаляем ключ
 
                     if (!key.isValid()) { // если ключ истёк прерываем текущую итерацию
-                        logger.fine("Key is not valid.");
+                        logger.warn("Selection key is not valid");
                         continue;
                     }
 
@@ -94,11 +102,9 @@ public class NioServer implements Runnable {
                         try {
                             // регистрируем сессию клиента для дальнейшей работы
                             NioServerClient client = new NioServerClient(clientKey);
-                            System.out.println("New client connected. ID=" + client.getClientId());
-                            logger.fine("New client connected. ID=" + client.getClientId());
+                            logger.info("New client connected. ID={}", client.getClientId());
                         } catch(IOException ex) {
-                            System.out.println("Key is canceled " + clientKey);
-                            logger.fine("Key is canceled " + clientKey);
+                            logger.info("Selection key is canceled {}", clientKey);
                         }
                     }
 
@@ -116,20 +122,23 @@ public class NioServer implements Runnable {
                     }
                 }
             }
+
+
         } catch (BindException e) {
-            logger.log(Level.SEVERE, "Port already used: ", e);
+            logger.error("Port already used: ", e);
         } catch (IOException e) {
-            logger.log(Level.SEVERE, "Exception: ", e);
+            logger.error("Exception: ", e);
         } finally { // в любом случае была ошибка или нет гасим сервер
             try {
                 selector.close(); // закрываем селектор
                 serverChannel.socket().close(); // закрываем сокет канала сервера
                 serverChannel.close(); // закрываем канал сервера
+                executor.shutdown();
+
                 state.set(NioServer.State.STOPPED); // устанавливает статус сервера в STOPPED
-                System.out.println("Server is stopped");
-                logger.fine("Server is stopped");
+                logger.info("Server is stopped");
             } catch (IOException e) {
-                logger.log(Level.SEVERE,"Exception: ", e);
+                logger.error("Exception: ", e);
             }
         }
     }
@@ -139,4 +148,17 @@ public class NioServer implements Runnable {
         return SessionManager.getClientByKey(key);
     }
 
+    public void setState(State state) {
+        NioServer.state.set(state);
+    }
+
+    public void shutdown() {
+        SessionManager.removeAllSessions();
+        this.setState(State.STOPPING);
+        return;
+    }
+
+    public ArrayList<String> getSessionlist() {
+        return SessionManager.getSessionList();
+    }
 }

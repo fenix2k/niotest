@@ -1,16 +1,18 @@
 package client;
 
 import network.Message;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Random;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 // Клиент
 public class NioClient implements Runnable {
+    private static final Logger logger = LoggerFactory.getLogger(Message.class.getName());
+
     private static final int DEFAULT_MESSAGE_SIZE = 60;
 
     private final String IP;
@@ -23,8 +25,6 @@ public class NioClient implements Runnable {
 
     private final BufferedReader consoleInput;
     private Thread receiver = new Thread(new Receiver());
-
-    private static Logger logger = Logger.getLogger(NioClient.class.getName());
 
     public NioClient(String IP, int PORT) throws IOException {
         this(IP, PORT, DEFAULT_MESSAGE_SIZE);
@@ -58,7 +58,7 @@ public class NioClient implements Runnable {
                 thread.start();
             }*/
         } catch (IOException e) {
-            logger.log(Level.SEVERE,"Unable to connect to server: ", e);
+            logger.error("Unable to connect to server: ", e);
         }
     }
 
@@ -93,7 +93,8 @@ public class NioClient implements Runnable {
             try {
 
                 if(this.socket.isClosed()) {
-                    logger.fine("Socket was unexpected closed");
+                    logger.error("Socket was unexpected closed");
+                    logger.error("Disconnected from server");
                     System.out.println("Disconnected from server");
                     System.exit(0);
                     break;
@@ -108,7 +109,7 @@ public class NioClient implements Runnable {
 
                 System.out.println(Thread.currentThread().getName() + " [" + message.getMessageId() + "] send: " + message);
             } catch (IOException e) {
-                logger.log(Level.SEVERE,"Connection lost: ", e);
+                logger.error("Connection lost: ", e);
                 System.exit(0);
             }
         }
@@ -132,12 +133,14 @@ public class NioClient implements Runnable {
                 userMessage = this.consoleInput.readLine();
 
                 if(this.socket.isClosed()) {
-                    logger.fine("Socket was unexpected closed");
+                    logger.info("Socket was unexpected closed");
+                    logger.info("Disconnected from server");
                     System.out.println("Disconnected from server");
                     System.exit(0);
                     break;
                 }
                 if(userMessage == null || userMessage.length() == 0) {
+                    logger.debug("Wrong message. Try again");
                     System.out.println("Wrong message. Try again");
                     continue;
                 }
@@ -156,8 +159,10 @@ public class NioClient implements Runnable {
                     return;
                 }
             } catch (IOException e) {
-                logger.log(Level.SEVERE,"Connection lost: ", e);
-                System.exit(0);
+                //logger.log(Level.SEVERE,"Connection lost: ", e);
+                logger.error("Disconnected from server");
+                //System.exit(0);
+                break;
             }
         }
         System.out.println("Client is closed");
@@ -175,7 +180,7 @@ public class NioClient implements Runnable {
                 // создаём экземпляр сообщения
                 message = new Message(MESSAGE_SIZE);
             } catch (IOException e) {
-                logger.fine("Create Message instance error");
+                logger.error("Create Message instance error");
                 return;
             }
 
@@ -213,6 +218,7 @@ public class NioClient implements Runnable {
                         // Проверка валидности длинны сообщения (0 < messageLength < размер буфера)
                         if(messageLength <= 0 || messageLength > (MESSAGE_SIZE - Message.LENGTH_SIZE)) {
                             // Длинна пакета не верная.  Прерываем цикл обработки буфера.
+                            logger.error("Wrong packet size. May be packet is corrupt");
                             System.out.println("Wrong packet size. May be packet is corrupt");
                             break;
                         }
@@ -246,7 +252,8 @@ public class NioClient implements Runnable {
                         }
                     } while (hasBytes >= Message.LENGTH_SIZE);
                 } catch (IOException e) {
-                    logger.log(Level.SEVERE,"Exception: ", e);
+                    logger.error("Exception: ", e);
+                    break;
                 }
             }
         }

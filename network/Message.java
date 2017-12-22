@@ -1,14 +1,17 @@
 package network;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.util.Random;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 public class Message {
+    private static final Logger logger = LoggerFactory.getLogger(Message.class.getName());
+
     public static final int LENGTH_SIZE = 4; // кол-во байт выделенные под длинну сообщения
     public static final int ID_SIZE = 4; // кол-во байт выделенные под длинну идентификатора сообщения
     public static final int TYPE_SIZE = 4; // кол-во байт выделенные под длинну типа сообщения
@@ -23,7 +26,6 @@ public class Message {
     private byte[] messageBody = null; // тело сообщения
 
     public ByteBuffer readBuffer = null; // буфер для сбора сообщения по частям
-    private static Logger logger = Logger.getLogger(Message.class.getName()); // логгер
 
     // Конструктор используется для копирования сообщения
     public Message() {
@@ -31,13 +33,13 @@ public class Message {
     }
 
     // Конструктор используется для создание нового сообщения и считывания из канала
-    public Message(int bufferSize)
-            throws IOException {
-        if(bufferSize > 0) { // проверка валидности размера буфера
+    public Message(int bufferSize) throws IOException {
+        if(bufferSize > 0 && bufferSize <= Integer.MAX_VALUE) { // проверка валидности размера буфера
             this.MAX_MESSAGE_SIZE = bufferSize; // устанавливаем максимальную длинну сообщения
             readBuffer = ByteBuffer.allocate(bufferSize); // выделяем память
         }
-        else throw new IOException("Invalid buffer size. Must be > 0");
+        else
+            throw new IOException("Invalid buffer size. Must be > 0");
     }
 
     // геттер длинны сообщения
@@ -78,7 +80,8 @@ public class Message {
             this.messageBody = messageBody;
             this.messageLength = this.messageBody.length + ID_SIZE + TYPE_SIZE;
         }
-        else throw new IOException("Invalid ID or TYPE or Message Body. Must be > 0");
+        else
+            throw new IOException("Invalid ID or TYPE or Message Body. Must be > 0");
     }
 
     // метод читает данные из readBuffer в соответствующие поля класса
@@ -96,7 +99,7 @@ public class Message {
         this.messageBody = new byte[this.messageLength - ID_SIZE - TYPE_SIZE]; // выделяем память под тело сообщения
         this.readBuffer.get(this.messageBody); // запоминаем тело сообщения
 
-        // удаляем из буфера прочитанное сообщение и начала и сдвигаем весь массив
+        // удаляем из буфера прочитанное сообщение из начала и сдвигаем весь массив
         int endBuffer = this.readBuffer.limit() - (messageLength + LENGTH_SIZE);
         byte[] cutBuffer = this.readBuffer.array();
         this.readBuffer.position(0);
@@ -162,7 +165,7 @@ public class Message {
             result += new String(Integer.toString(this.messageType) + "] ");
             result += new String(this.messageBody, "UTF-8");
         } catch (UnsupportedEncodingException e) {
-            logger.log(Level.SEVERE,"Exception: ", e);
+            logger.debug("Exception: ", e);
         }
         return result;
     }
@@ -172,7 +175,7 @@ public class Message {
         try {
             result = new String(this.messageBody, "UTF-8");
         } catch (UnsupportedEncodingException e) {
-            logger.log(Level.SEVERE,"Exception: ", e);
+            logger.debug("Exception: ", e);
         }
         return result;
     }

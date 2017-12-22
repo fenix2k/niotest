@@ -1,5 +1,8 @@
 package network;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
@@ -8,13 +11,12 @@ import java.util.Iterator;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 public class MessageIO {
+    private static final Logger logger = LoggerFactory.getLogger(MessageIO.class.getName());
+
     private static final int DEFAULT_MESSAGE_SIZE = 1024; // константа, размер буфера по умолчанию
     private static final int HEADER_LENGTH = Message.HEADER_SIZE; // константа, кол-ва байт для передачи длинны сообщения
-    private static Logger logger = Logger.getLogger(MessageIO.class.getName());
 
     private final SelectionKey clientKey; // ключ
     private final int MESSAGE_SIZE; // размер буфера
@@ -40,7 +42,8 @@ public class MessageIO {
             message = new Message(this.MESSAGE_SIZE);
             clientChannel = (SocketChannel) this.clientKey.channel();
         }
-        else throw new IOException("Invalid params value");
+        else
+            throw new IOException("Invalid params value");
     }
 
     // Метод добавляет считанное сообщение в очередь отправки
@@ -64,18 +67,15 @@ public class MessageIO {
             // считывам данные из канала и запоминаем кол-во считанных байт
             numRead = this.clientChannel.read(this.message.readBuffer);
         } catch (IOException e) { // ошибка чтения
-            logger.log(Level.SEVERE,"Client unexpectedly disconnected", e);
             IOException exception = new IOException("Client unexpectedly disconnected");
             exception.addSuppressed(e);
             throw exception;
         }
 
         if(numRead == -1) { // Штатно закрылся канал. Завершаем сессию
-            logger.fine("Client closed connection");
-            throw new IOException("Client closed connection");
+            throw new IOException("Client was closed connection");
         }
         else if(numRead == 0) { // Пустое сообщение. Завершаем сессию
-            logger.fine("No data received. Close connection");
             throw new IOException("No data received. Close connection");
         }
 
@@ -91,7 +91,7 @@ public class MessageIO {
             if (position < HEADER_LENGTH) {
                 // Заголовок первого сообщения пришел не полностью.
                 // Прерываем цикл и ждем следующей порции данных.
-                logger.fine("Received packet is too small: header < 12");
+                logger.debug("Received packet is too small: header < 12");
                 this.hasMessageTail = true;
                 if(position != 0) {
                     // проверяем что это не первый проход
@@ -108,8 +108,8 @@ public class MessageIO {
             // Проверка валидности длинны сообщения (0 < messageLength < размер буфера)
             if(messageLength <= 0 || messageLength > (this.MESSAGE_SIZE - Message.LENGTH_SIZE)) {
                 // Длинна пакета не верная.  Прерываем цикл обработки буфера.
-                System.out.println("Wrong packet size. May be packet is corrupt");
-                logger.fine("Wrong packet size. May be packet is corrupt");
+                logger.debug("Wrong packet size (May be packet is corrupt)");
+                // Наверно нужно сделать ресет соединения
                 break;
             }
 
@@ -117,7 +117,7 @@ public class MessageIO {
             if (messageLength > (position - Message.LENGTH_SIZE)) {
                 // Тело сообщения пришло не полностью.
                 // Прерываем цикл и ждем следующей порции данных.
-                logger.fine("Received packet is too small: body < len (" + messageLength + ")");
+                logger.debug("Received packet is too small: body < len ({})", messageLength);
                 this.message.readBuffer.position(position); // устанавливаем конечный элемент буфера
                 this.message.readBuffer.limit(this.MESSAGE_SIZE); // устанавливаем лимит буфера
                 this.hasMessageTail = true; // устанавливаем флаг сообщение пришло не полностью
@@ -142,7 +142,8 @@ public class MessageIO {
         // Проверям что очередь вх. сообщение не пуст
         if(messageQueue.size() > 0)
             return messageQueue; // возвращаем очередь вх. сообщений
-        else return null;
+        else
+            return null;
     }
 
     // Метод отправляет данные из очереди отправки в канал клиента
@@ -159,7 +160,6 @@ public class MessageIO {
                 try {
                     numWrite = this.clientChannel.write(bb); // записываем в канал данные из буфера и получам кол-во записанных байтов
                 } catch (IOException e) {
-                    logger.log(Level.SEVERE,"Client unexpectedly disconnected", e);
                     IOException exception = new IOException("Client unexpectedly disconnected");
                     exception.addSuppressed(e);
                     throw exception;
@@ -167,31 +167,36 @@ public class MessageIO {
 
                 if (numWrite == -1) {
                     // Штатно закрылся канал. Закрываем....
-                    logger.fine("Channel is closed");
                     throw new IOException("Channel is closed");
                 } else if (numWrite == 0) {
                     // заполнились внутренние буфера джавы и операционки.
-                    logger.fine("Write buffer is full...");
+                    logger.debug("Write buffer is full. Break processing");
                     break;
                 } else if (numWrite > 0) {
                     // записали полностью или частично буфер.
                     if (bb.remaining() == 0) {
                         // полностью буфер записали, удаляем из списка.
-                        logger.fine("Message send successful");
+                        logger.debug("Message send successful");
                         iterator.remove();
                     } else {
                         // записан текущий буфер частично
                         // а значит - прерываем цикл обхода буферов.
-                        logger.fine("Message send not full");
+                        logger.debug("Message send not full");
                         break;
                     }
                 }
             }
             // если список буферов пуст, то есть, записали все, то переключаемся в режим "хочу читать!"
             if (this.outputQueue.size() == 0) {
+                logger.debug("All messages was send");
                 return 1;
             }
+            else {
+                logger.debug("No all messages was send");
+                return 0;
+            }
         }
+        logger.debug("No messages to send");
         return 0;
     }
 }
