@@ -1,34 +1,37 @@
 package network;
 
+import network.packets.Packet100Message;
+
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
 public class PacketFactory {
     //Ассоциативный массив: класс сообщения => идентификатор сообщения
-    private static final Map<Class<? extends Packet>, Integer> idMap = new HashMap<>();
+    private static final Map<Class<? extends PacketBase>, Integer> idMap = new HashMap<>();
 
     static {
-        //idMap.put(Packet00HandshakeRequest.class, Packet00HandshakeRequest.messageId);
+        idMap.put(Packet100Message.class, Packet100Message.type);
     }
 
     private PacketFactory() {
     }
 
     //Создает сообщение по идентификатору
-    public static Packet createMessage(int packetId) throws IOException {
+    public static PacketBase createPacket(PacketBase packet) throws IOException {
 
-        switch (packetId) {
-            //case Packet00HandshakeRequest.messageId:
-            //    return new Packet00HandshakeRequest();
+        switch (packet.getPacketType()) {
+            case Packet100Message.type:
+                return new Packet100Message();
 
             default:
-                throw new IOException("Unknown message type " + packetId);
+                throw new IOException("Unknown message type " + packet.getPacketType());
         }
+
     }
 
-    public static int getMessageId(final Packet packet) {
-        Integer id = idMap.get(packet.getClass());
-        return id.intValue();
+    public static int getPacketType(final PacketBase packetBase) {
+        Integer type = idMap.get(packetBase.getClass());
+        return type.intValue();
     }
 }

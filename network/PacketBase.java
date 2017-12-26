@@ -9,8 +9,8 @@ import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 
 // Экземпляет сообщения
-public class Packet {
-    private static final Logger logger = LoggerFactory.getLogger(Packet.class.getName());
+public class PacketBase implements iPacket {
+    private static final Logger logger = LoggerFactory.getLogger(PacketBase.class.getName());
 
     public static final int LENGTH_SIZE = 4; // кол-во байт выделенные под длинну сообщения
     public static final int TYPE_SIZE = 4; // кол-во байт выделенные под длинну типа сообщения
@@ -26,12 +26,12 @@ public class Packet {
     public ByteBuffer readBuffer = null; // буфер для сбора сообщения по частям
 
     // Конструктор используется для копирования сообщения
-    public Packet() {
+    public PacketBase() {
         this.MAX_PACKET_SIZE = 0;
     }
 
     // Конструктор используется для создание нового сообщения и считывания из канала
-    public Packet(int bufferSize) throws IOException {
+    public PacketBase(int bufferSize) throws IOException {
         if(bufferSize > 0 && bufferSize <= Integer.MAX_VALUE) { // проверка валидности размера буфера
             this.MAX_PACKET_SIZE = bufferSize; // устанавливаем максимальную длинну сообщения
             readBuffer = ByteBuffer.allocate(bufferSize); // выделяем память
@@ -55,6 +55,21 @@ public class Packet {
         return packetBody;
     }
 
+    // сеттер ТЕЛА сообщения
+    public void setPacketBody(byte[] data) {
+        this.packetBody = data;
+    }
+
+    @Override
+    public void writePacketBody() {
+
+    }
+
+    @Override
+    public void readPacketBody() {
+
+    }
+
     // Метод заполняет поля сообщения
     public void setPacket(int type, byte[] messageBody)
             throws IOException {
@@ -64,7 +79,7 @@ public class Packet {
             this.packetLength = this.packetBody.length + TYPE_SIZE;
         }
         else
-            throw new IOException("Invalid ID or TYPE or Packet Body. Must be > 0");
+            throw new IOException("Invalid TYPE or PacketBody. Must be > 0");
     }
 
     public String getPacketBodyStr() {
@@ -100,7 +115,7 @@ public class Packet {
         this.readBuffer.clear(); // очищаем буфер
     }
 
-    // преобразовываем Packet в ByteBuffer
+    // преобразовываем PacketBase в ByteBuffer
     public ByteBuffer getByteBufferMessage() {
         ByteBuffer writeBuffer = ByteBuffer.allocate(HEADER_SIZE + this.packetLength);
         byte[] length = ByteBuffer.allocate(LENGTH_SIZE).putInt(this.packetLength).array(); // формирует byte[] из длинны сообщения
@@ -115,7 +130,7 @@ public class Packet {
         return writeBuffer;
     }
 
-    // преобразовываем Packet в byte[]
+    // преобразовываем PacketBase в byte[]
     public byte[] getByteArrayMessage() throws IOException {
         if(this.packetLength <= 0 || this.packetBody == null) {
             throw new IOException("Invalid message");
@@ -135,12 +150,12 @@ public class Packet {
         this.readBuffer.clear();
     }
 
-    public Packet clone() {
-        Packet newPacket = new Packet();
-        newPacket.packetLength = this.packetLength;
-        newPacket.packetType = this.packetType;
-        newPacket.packetBody = this.packetBody;
-        return newPacket;
+    public PacketBase clone() {
+        PacketBase newPacketBase = new PacketBase();
+        newPacketBase.packetLength = this.packetLength;
+        newPacketBase.packetType = this.packetType;
+        newPacketBase.packetBody = this.packetBody;
+        return newPacketBase;
     }
 
     @Override

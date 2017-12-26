@@ -34,19 +34,19 @@ public class Client extends ClientBase implements Runnable {
 
         logger.debug("New processing thread executed");
 
-        Packet packet; // экземпяр сообщения
+        PacketBase packetBase; // экземпяр сообщения
         // В цикле обрабатываем все сообщения из очереди вх. сообщений
-        while ((packet = inputPacketQueue.poll()) != null) {
+        while ((packetBase = inputPacketBaseQueue.poll()) != null) {
             // обрабатываем сообщение и получаем результат
-            int result = this.processingPacket(packet);
+            int result = this.processingPacket(packetBase);
             if (result == -1) {
                 // Пришла комманда зарыть соединение или пустое сообщение. Закрываем канал.
                 this.closeChannel();
             }
         }
 
-        if(this.outputPacketQueue.size() > 0 && this.clientKey.isValid()) {
-            networkIO.addAllToOutputQueue(this.outputPacketQueue);
+        if(this.outputPacketBaseQueue.size() > 0 && this.clientKey.isValid()) {
+            channelWriter.addAllToOutputQueue(this.outputPacketBaseQueue);
             // выставляем флаг о том что необходимо отправить данные
             this.clientKey.interestOps(SelectionKey.OP_WRITE);
             logger.debug("Changing channel mode to OP_WRITE");
@@ -56,18 +56,18 @@ public class Client extends ClientBase implements Runnable {
     }
 
     // Метод отвечающий за обработку входящих сообщений
-    private int processingPacket(Packet packet) {
-        logger.debug("Process packet: {}", packet);
+    private int processingPacket(PacketBase packetBase) {
+        logger.debug("Process packet: {}", packetBase);
 
         // Завершаем сессию, если пришло сообщение "quit"
-        if ("quit".equals(packet.getPacketBodyStr().toLowerCase())) {
+        if ("quit".equals(packetBase.getPacketBodyStr().toLowerCase())) {
             return -1;
         }
 
         // ТУТ ДОЛЖНА БЫТЬ ОБРАБОТКА
 
-        this.outputPacketQueue.add(packet); // кладем готовое сообщениев очередь исходящих сообщений
-        logger.debug("Packet added to outgoing queue: {}", packet);
+        this.outputPacketBaseQueue.add(packetBase); // кладем готовое сообщениев очередь исходящих сообщений
+        logger.debug("Packet added to outgoing queue: {}", packetBase);
 
         return 1;
     }

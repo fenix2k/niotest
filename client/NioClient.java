@@ -1,6 +1,6 @@
 package client;
 
-import network.Packet;
+import network.PacketBase;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,7 +11,7 @@ import java.util.Random;
 
 // Клиент
 public class NioClient implements Runnable {
-    private static final Logger logger = LoggerFactory.getLogger(Packet.class.getName());
+    private static final Logger logger = LoggerFactory.getLogger(PacketBase.class.getName());
 
     private static final int DEFAULT_MESSAGE_SIZE = 60;
 
@@ -101,13 +101,13 @@ public class NioClient implements Runnable {
                 }
 
                 byte[] messageBody = userMessage.getBytes("UTF-8");
-                Packet packet = new Packet(this.MESSAGE_SIZE);
-                packet.setPacket(0, messageBody);
+                PacketBase packetBase = new PacketBase(this.MESSAGE_SIZE);
+                packetBase.setPacket(0, messageBody);
 
-                this.dos.write(packet.getByteArrayMessage());
+                this.dos.write(packetBase.getByteArrayMessage());
                 this.dos.flush();
 
-                System.out.println(Thread.currentThread().getName() + " [" + i + "] send: " + packet);
+                System.out.println(Thread.currentThread().getName() + " [" + i + "] send: " + packetBase);
             } catch (IOException e) {
                 logger.error("Connection lost: ", e);
                 System.exit(0);
@@ -141,21 +141,21 @@ public class NioClient implements Runnable {
                     break;
                 }
                 if(userMessage == null || userMessage.length() == 0) {
-                    logger.debug("Wrong packet. Try again");
-                    System.out.println("Wrong packet. Try again");
+                    logger.debug("Wrong packetBase. Try again");
+                    System.out.println("Wrong packetBase. Try again");
                     continue;
                 }
 
                 byte[] messageBody = userMessage.getBytes("UTF-8");
-                Packet packet = new Packet(this.MESSAGE_SIZE);
-                packet.setPacket(0, messageBody);
+                PacketBase packetBase = new PacketBase(this.MESSAGE_SIZE);
+                packetBase.setPacket(0, messageBody);
 
-                this.dos.write(packet.getByteArrayMessage());
+                this.dos.write(packetBase.getByteArrayMessage());
                 this.dos.flush();
 
-                System.out.println("[" + counter++ + "] Packet was send: " + packet);
+                System.out.println("[" + counter++ + "] PacketBase was send: " + packetBase);
 
-                if("quit".equals(packet.getPacketBodyStr().toLowerCase())) {
+                if("quit".equals(packetBase.getPacketBodyStr().toLowerCase())) {
                     System.out.println("Shutdown client");
                     return;
                 }
@@ -174,14 +174,14 @@ public class NioClient implements Runnable {
         @Override
         public void run() {
             System.out.println("Receiver started");
-            Packet packet = null;
+            PacketBase packetBase = null;
             int hasBytes = -1; // хранит кол-во не обработанных байт в буфере
 
             try {
                 // создаём экземпляр сообщения
-                packet = new Packet(MESSAGE_SIZE);
+                packetBase = new PacketBase(MESSAGE_SIZE);
             } catch (IOException e) {
-                logger.error("Create Packet instance error");
+                logger.error("Create PacketBase instance error");
                 return;
             }
 
@@ -189,7 +189,7 @@ public class NioClient implements Runnable {
             while (!socket.isClosed()) {
                 try {
                     // ждем пока придёт хотя бы заголовок сообщения
-                    if (dis.available() < Packet.HEADER_SIZE && hasBytes == 0) {
+                    if (dis.available() < PacketBase.HEADER_SIZE && hasBytes == 0) {
                         Thread.sleep(10);
                         continue;
                     }
@@ -202,56 +202,56 @@ public class NioClient implements Runnable {
                 try {
                     byte[] buffer;
                     // Создаём буффер для чтения сообщения нужной длинны
-                    if((packet.readBuffer.position() + dis.available()) > MESSAGE_SIZE)
-                        buffer = new byte[MESSAGE_SIZE - packet.readBuffer.position()];
+                    if((packetBase.readBuffer.position() + dis.available()) > MESSAGE_SIZE)
+                        buffer = new byte[MESSAGE_SIZE - packetBase.readBuffer.position()];
                     else buffer = new byte[MESSAGE_SIZE];
 
                     read = dis.read(buffer); // читаем и потока в буфер
 
-                    packet.readBuffer.put(buffer,0, read); // сохраняем в буфер Packet
+                    packetBase.readBuffer.put(buffer,0, read); // сохраняем в буфер PacketBase
                     hasBytes = 0;
 
                     do {
-                        int position = packet.readBuffer.position(); // запоминаем текущее положение буфера
-                        packet.readBuffer.position(0); // устанавливаем метку в 0 для чтения длинны сообщения
-                        int messageLength = packet.readBuffer.getInt(); // читаем длинну сообщения
+                        int position = packetBase.readBuffer.position(); // запоминаем текущее положение буфера
+                        packetBase.readBuffer.position(0); // устанавливаем метку в 0 для чтения длинны сообщения
+                        int messageLength = packetBase.readBuffer.getInt(); // читаем длинну сообщения
 
                         // Проверка валидности длинны сообщения (0 < messageLength < размер буфера)
-                        if(messageLength <= 0 || messageLength > (MESSAGE_SIZE - Packet.LENGTH_SIZE)) {
+                        if(messageLength <= 0 || messageLength > (MESSAGE_SIZE - PacketBase.LENGTH_SIZE)) {
                             // Длинна пакета не верная.  Прерываем цикл обработки буфера.
-                            logger.error("Wrong packet size. May be packet is corrupt");
-                            System.out.println("Wrong packet size. May be packet is corrupt");
+                            logger.error("Wrong packetBase size. May be packetBase is corrupt");
+                            System.out.println("Wrong packetBase size. May be packetBase is corrupt");
                             break;
                         }
 
                         // Проеряем пришло ли сообщение полностью
-                        if (messageLength <= (position - Packet.LENGTH_SIZE)) {
-                            packet.readBuffer(messageLength); // читаем сообщение в Packet
-                            System.out.println(Thread.currentThread().getName() + " [" + 0 + "] receive: " + packet);
+                        if (messageLength <= (position - PacketBase.LENGTH_SIZE)) {
+                            packetBase.readBuffer(messageLength); // читаем сообщение в PacketBase
+                            System.out.println(Thread.currentThread().getName() + " [" + 0 + "] receive: " + packetBase);
 
                             // Определяем сколько ещё байтов в буфере
-                            hasBytes = (position - Packet.LENGTH_SIZE) - messageLength;
+                            hasBytes = (position - PacketBase.LENGTH_SIZE) - messageLength;
 
                             // Если > 0, то нужно будет читать ещё
                             if (hasBytes > 0) {
-                                packet.readBuffer.position(hasBytes);
-                                if(hasBytes < Packet.LENGTH_SIZE)
-                                    packet.readBuffer.limit(MESSAGE_SIZE);
+                                packetBase.readBuffer.position(hasBytes);
+                                if(hasBytes < PacketBase.LENGTH_SIZE)
+                                    packetBase.readBuffer.limit(MESSAGE_SIZE);
                                 else
-                                    packet.readBuffer.limit(hasBytes);
+                                    packetBase.readBuffer.limit(hasBytes);
 
                                 System.out.println(Thread.currentThread().getName() + " [" + 0 + "] left bytes: "
-                                        + ((position - Packet.LENGTH_SIZE) - messageLength));
+                                        + ((position - PacketBase.LENGTH_SIZE) - messageLength));
                             }
                         } else {
                             // Сообщение пришло не полностью
-                            packet.readBuffer.position(position);
-                            packet.readBuffer.limit(MESSAGE_SIZE);
+                            packetBase.readBuffer.position(position);
+                            packetBase.readBuffer.limit(MESSAGE_SIZE);
                             hasBytes = position;
-                            System.out.println(Thread.currentThread().getName() + " [" + 0 + "] Packet is not full");
+                            System.out.println(Thread.currentThread().getName() + " [" + 0 + "] PacketBase is not full");
                             break;
                         }
-                    } while (hasBytes >= Packet.LENGTH_SIZE);
+                    } while (hasBytes >= PacketBase.LENGTH_SIZE);
                 } catch (IOException e) {
                     logger.error("Exception: ", e);
                     break;

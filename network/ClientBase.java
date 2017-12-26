@@ -16,10 +16,11 @@ public class ClientBase {
     protected static final Logger logger = LoggerFactory.getLogger(ClientBase.class.getName());
     protected final int clientId; // текущий ИД клиента
     protected final SelectionKey clientKey; // ключ (для получения/отправки данных)
-    protected final NetworkIO networkIO; // класс обеспечивает приём и отправку сообщений Packet
+    protected final ChannelReader channelReader;
+    protected final ChannelWriter channelWriter;
 
-    protected Queue<Packet> inputPacketQueue = new ConcurrentLinkedQueue<>(); // очередь входящих сообщений для обработки
-    protected Queue<Packet> outputPacketQueue = new ConcurrentLinkedQueue<>(); // очередь исходящих сообщений для обработки
+    protected Queue<PacketBase> inputPacketBaseQueue = new ConcurrentLinkedQueue<>(); // очередь входящих сообщений для обработки
+    protected Queue<PacketBase> outputPacketBaseQueue = new ConcurrentLinkedQueue<>(); // очередь исходящих сообщений для обработки
     public int NET_MAX_PACKET_SIZE = 1024;
 
     // Конструктор принимает SelectionKey, присваивает ИД и запоминает сессию клиента
@@ -27,7 +28,8 @@ public class ClientBase {
         if(clientKey != null) {
             this.clientKey = clientKey;
             this.clientId = clientId;
-            networkIO = new NetworkIO(this.clientKey, NET_MAX_PACKET_SIZE);
+            channelReader = new ChannelReader(this.clientKey, NET_MAX_PACKET_SIZE);
+            channelWriter = new ChannelWriter(this.clientKey);
         }
         else
             throw new IOException("Selection key is null");
@@ -46,9 +48,9 @@ public class ClientBase {
 
         try {
             // Читаем пакет и получаем массив сообщений
-            Queue<Packet> packetQueue = networkIO.read();
-            if(packetQueue != null) { // если не null, то добавляем в очередь сообщений
-                this.inputPacketQueue.addAll(packetQueue);
+            Queue<PacketBase> packetBaseQueue = channelReader.read();
+            if(packetBaseQueue != null) { // если не null, то добавляем в очередь сообщений
+                this.inputPacketBaseQueue.addAll(packetBaseQueue);
             }
         } catch (IOException e) {
             // Ошибка, возвращаем -1
@@ -58,9 +60,9 @@ public class ClientBase {
         }
 
         // Если очередь сообщений не пуста, то возвращаем 1
-        if(this.inputPacketQueue.size() > 0) {
-            logger.debug("Received {} messages", this.inputPacketQueue.size());
-            if(networkIO.hasMessageTail())
+        if(this.inputPacketBaseQueue.size() > 0) {
+            logger.debug("Received {} messages", this.inputPacketBaseQueue.size());
+            if(channelReader.hasMessageTail())
                 logger.debug("Buffer has tail of message!");
             MDC.remove("clientId");
             return 1;
@@ -80,7 +82,7 @@ public class ClientBase {
         int result;
         try {
             // Пишем сообщение в канал и получаем результат
-            result = networkIO.write();
+            result = channelWriter.write();
             if(result == 1) {
                 // Если успешно - переходим в режим чтения канала
                 logger.debug("Changing channel mode to OP_READ");
