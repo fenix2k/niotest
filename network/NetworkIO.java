@@ -12,34 +12,36 @@ import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
-public class MessageIO {
-    private static final Logger logger = LoggerFactory.getLogger(MessageIO.class.getName());
+// Класс используется при чтении и записи данных в канал.
+// Принимает данные из канала (в т.ч. фрагментированные), отпраляет.
+public class NetworkIO {
+    private static final Logger logger = LoggerFactory.getLogger(NetworkIO.class.getName());
 
     private static final int DEFAULT_MESSAGE_SIZE = 1024; // константа, размер буфера по умолчанию
-    private static final int HEADER_LENGTH = Message.HEADER_SIZE; // константа, кол-ва байт для передачи длинны сообщения
+    private static final int HEADER_LENGTH = Packet.HEADER_SIZE; // константа, кол-ва байт для передачи длинны сообщения
 
     private final SelectionKey clientKey; // ключ
     private final int MESSAGE_SIZE; // размер буфера
     private final SocketChannel clientChannel; // канал клиента
-    private final ConcurrentLinkedQueue<Message> outputQueue = new ConcurrentLinkedQueue<Message>();
+    private final ConcurrentLinkedQueue<Packet> outputQueue = new ConcurrentLinkedQueue<Packet>();
 
-    private Message message; // текущее сообщение
+    private Packet packet; // текущее сообщение
     private boolean hasMessageTail = false; // признак того, что сообщение пришло не полностью
 
     // Конструктор по умолчанию. Устанавливает максимальный размер сообщения по умолчанию
-    public MessageIO(SelectionKey clientKey) throws IOException {
+    public NetworkIO(SelectionKey clientKey) throws IOException {
         this(clientKey, DEFAULT_MESSAGE_SIZE);
     }
 
     // Конструктор. Устанавлиеваем максимальный размер сообщения из переданного параметра
-    public MessageIO(SelectionKey clientKey, int MESSAGE_SIZE) throws IOException {
+    public NetworkIO(SelectionKey clientKey, int MESSAGE_SIZE) throws IOException {
         // проверяем валидность параметров
         if(clientKey != null &&
                 (MESSAGE_SIZE > 0 && MESSAGE_SIZE <= Integer.MAX_VALUE )) {
             this.clientKey = clientKey;
             this.MESSAGE_SIZE = MESSAGE_SIZE;
 
-            message = new Message(this.MESSAGE_SIZE);
+            packet = new Packet(this.MESSAGE_SIZE);
             clientChannel = (SocketChannel) this.clientKey.channel();
         }
         else
@@ -47,9 +49,9 @@ public class MessageIO {
     }
 
     // Метод добавляет считанное сообщение в очередь отправки
-    public void addToOutputQueue(Message message) {
-        if(message != null)
-            this.outputQueue.add(message);
+    public void addAllToOutputQueue(Queue<Packet> packets) {
+        if(packet != null)
+            this.outputQueue.addAll(packets);
     }
 
     // Метод возвращает признак наличия других сообщений в буфере
@@ -57,15 +59,15 @@ public class MessageIO {
         return hasMessageTail;
     }
 
-    // Метод считывает данные из канала и сохраняет в классе Message.
+    // Метод считывает данные из канала и сохраняет в классе Packet.
     // Возвращает очередь вх. сообщений.
-    public Queue<Message> read() throws IOException {
+    public Queue<Packet> read() throws IOException {
         int numRead; // будет хранить кол-во считанных байтов или статус
         int position; // будет хранить текущую позицию буфера
 
         try {
             // считывам данные из канала и запоминаем кол-во считанных байт
-            numRead = this.clientChannel.read(this.message.readBuffer);
+            numRead = this.clientChannel.read(this.packet.readBuffer);
         } catch (IOException e) { // ошибка чтения
             IOException exception = new IOException("Client unexpectedly disconnected");
             exception.addSuppressed(e);
@@ -75,17 +77,17 @@ public class MessageIO {
         if(numRead == -1) { // Штатно закрылся канал. Завершаем сессию
             throw new IOException("Client was closed connection");
         }
-        else if(numRead == 0) { // Пустое сообщение. Завершаем сессию
+        if(numRead == 0) { // Пустое сообщение. Завершаем сессию
             throw new IOException("No data received. Close connection");
         }
 
-        Queue<Message> messageQueue = new LinkedBlockingQueue<>();
+        Queue<Packet> packetQueue = new LinkedBlockingQueue<>();
         this.hasMessageTail = false;
         int hasBytes = 0; // хранит кол-во оставщихся в буфера байт
 
-        // Цикл считывания Message из буфера
+        // Цикл считывания Packet из буфера
         do {
-            position = this.message.readBuffer.position(); // запоминаем текущую позицию буфера
+            position = this.packet.readBuffer.position(); // запоминаем текущую позицию буфера
 
             // Проверяем пришел ли заголовок сообщения
             if (position < HEADER_LENGTH) {
@@ -95,18 +97,18 @@ public class MessageIO {
                 this.hasMessageTail = true;
                 if(position != 0) {
                     // проверяем что это не первый проход
-                    this.message.readBuffer.position(position); // устанавливаем конечный элемент буфера
-                    this.message.readBuffer.limit(this.MESSAGE_SIZE);
+                    this.packet.readBuffer.position(position); // устанавливаем конечный элемент буфера
+                    this.packet.readBuffer.limit(this.MESSAGE_SIZE);
                 }
                 break;
             }
 
             // Заголовок сообщения полностью дошел. Обрабатываем дальше...
-            this.message.readBuffer.position(0); // устанавливаем буфер в начало чтобы прочитать длинну сообщения
-            int messageLength = this.message.readBuffer.getInt(); // читаем длинну сообщения
+            this.packet.readBuffer.position(0); // устанавливаем буфер в начало чтобы прочитать длинну сообщения
+            int messageLength = this.packet.readBuffer.getInt(); // читаем длинну сообщения
 
             // Проверка валидности длинны сообщения (0 < messageLength < размер буфера)
-            if(messageLength <= 0 || messageLength > (this.MESSAGE_SIZE - Message.LENGTH_SIZE)) {
+            if(messageLength <= 0 || messageLength > (this.MESSAGE_SIZE - Packet.LENGTH_SIZE)) {
                 // Длинна пакета не верная.  Прерываем цикл обработки буфера.
                 logger.debug("Wrong packet size (May be packet is corrupt)");
                 // Наверно нужно сделать ресет соединения
@@ -114,34 +116,34 @@ public class MessageIO {
             }
 
             // Проверям пришло ли сообщение полностью
-            if (messageLength > (position - Message.LENGTH_SIZE)) {
+            if (messageLength > (position - Packet.LENGTH_SIZE)) {
                 // Тело сообщения пришло не полностью.
                 // Прерываем цикл и ждем следующей порции данных.
                 logger.debug("Received packet is too small: body < len ({})", messageLength);
-                this.message.readBuffer.position(position); // устанавливаем конечный элемент буфера
-                this.message.readBuffer.limit(this.MESSAGE_SIZE); // устанавливаем лимит буфера
+                this.packet.readBuffer.position(position); // устанавливаем конечный элемент буфера
+                this.packet.readBuffer.limit(this.MESSAGE_SIZE); // устанавливаем лимит буфера
                 this.hasMessageTail = true; // устанавливаем флаг сообщение пришло не полностью
                 break;
             }
 
             // Сообщение полностью дошло
-            this.message.readBuffer(messageLength); // копируем сообщение в объект сообщения
-            messageQueue.add(this.message.clone()); // записываем в буффер вх. сообщений новое
-            this.message.clear(); // очищаем объект
+            this.packet.readBuffer(messageLength); // копируем сообщение в объект сообщения
+            packetQueue.add(this.packet.clone()); // записываем в буффер вх. сообщений новое
+            this.packet.clear(); // очищаем объект
 
             // Проверям есть ли в буфере ещё сообщения
-            hasBytes = (position - Message.LENGTH_SIZE) - messageLength;
+            hasBytes = (position - Packet.LENGTH_SIZE) - messageLength;
             if(hasBytes > 0) {
                 // Сообщение ещё есть
-                this.message.readBuffer.position(hasBytes); // устанавливаем правильную позицию в буфере
-                this.message.readBuffer.limit(hasBytes); // устанавливаем лимит буфера
+                this.packet.readBuffer.position(hasBytes); // устанавливаем правильную позицию в буфере
+                this.packet.readBuffer.limit(hasBytes); // устанавливаем лимит буфера
             }
 
         } while (!this.hasMessageTail && hasBytes > 0); // если ещё сообщения есть, то читаем снова
 
         // Проверям что очередь вх. сообщение не пуст
-        if(messageQueue.size() > 0)
-            return messageQueue; // возвращаем очередь вх. сообщений
+        if(packetQueue.size() > 0)
+            return packetQueue; // возвращаем очередь вх. сообщений
         else
             return null;
     }
@@ -149,11 +151,11 @@ public class MessageIO {
     // Метод отправляет данные из очереди отправки в канал клиента
     // Возвращает статус отправки (0 - что-то не отправлено , 1 - успешная отправка и переключемся в режим "читать")
     public int write() throws IOException {
-        Iterator<Message> iterator = this.outputQueue.iterator(); // формируем итератор исходящей очереди
+        Iterator<Packet> iterator = this.outputQueue.iterator(); // формируем итератор исходящей очереди
         int numWrite = 0; // будет хранить кол-во записанных байтов
 
         while (iterator.hasNext()) { // проходим по элементам исходящей очереди
-            Message msg = iterator.next(); // запоминаем текущий элемент
+            Packet msg = iterator.next(); // запоминаем текущий элемент
             ByteBuffer bb = msg.getByteBufferMessage(); // преобразовываем в bytebuffer
 
             if (bb.position() < bb.limit()) { // проверям корректность буфера
@@ -176,12 +178,12 @@ public class MessageIO {
                     // записали полностью или частично буфер.
                     if (bb.remaining() == 0) {
                         // полностью буфер записали, удаляем из списка.
-                        logger.debug("Message send successful");
+                        logger.debug("Packet send successful");
                         iterator.remove();
                     } else {
                         // записан текущий буфер частично
                         // а значит - прерываем цикл обхода буферов.
-                        logger.debug("Message send not full");
+                        logger.debug("Packet send not full");
                         break;
                     }
                 }
@@ -191,12 +193,15 @@ public class MessageIO {
                 logger.debug("All messages was send");
                 return 1;
             }
-            else {
-                logger.debug("No all messages was send");
-                return 0;
-            }
         }
-        logger.debug("No messages to send");
+
+        if (this.outputQueue.size() != 0) {
+            logger.debug("No all messages was send");
+        }
+        else {
+            logger.debug("No messages to send");
+        }
+
         return 0;
     }
 }

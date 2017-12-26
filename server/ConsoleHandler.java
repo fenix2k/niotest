@@ -1,12 +1,13 @@
 package server;
 
+import network.Client;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.util.ArrayList;
+import java.util.List;
 
 public class ConsoleHandler implements Runnable {
     private static final Logger logger = LoggerFactory.getLogger(ConsoleHandler.class.getName());
@@ -71,10 +72,10 @@ public class ConsoleHandler implements Runnable {
     }
 
     private void getSessions() {
-        ArrayList<String> sessionList = nioServer.getSessionlist();
+        List<Client> sessionList = ClientManager.getSessionList();
         if(sessionList.size() > 0) {
-            for (String str : sessionList) {
-                writeConsole(str);
+            for (Client client : sessionList) {
+                writeConsole(client.getClientId() + ": " + client.getConnectTime());
             }
         }
         else writeConsole("No client connected");

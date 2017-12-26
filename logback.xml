@@ -21,7 +21,7 @@
 			<totalSizeCap>5MB</totalSizeCap>
 		</rollingPolicy>
 		<encoder>
-		  <pattern>%date %level [%thread] %logger{10} [%file:%line] %msg%n</pattern>
+		  <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} \(ID=%X{clientId}\) - %msg%n</pattern>
 		</encoder>
 	</appender>
 	
@@ -29,8 +29,8 @@
 	<logger name="network" level="DEBUG" additivity="false">
         <appender-ref ref="CONSOLE_MDC"/>
     </logger>
-	<logger name="server.NioServerClient" level="DEBUG" additivity="false">
-		<appender-ref ref="CONSOLE_MDC"/>
+	<logger name="server.ClientManager" level="DEBUG" additivity="false">
+		<appender-ref ref="CONSOLE"/>
 	</logger>
 
     <root level="DEBUG">

@@ -1,6 +1,6 @@
 package client;
 
-import network.Message;
+import network.Packet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,7 +11,7 @@ import java.util.Random;
 
 // Клиент
 public class NioClient implements Runnable {
-    private static final Logger logger = LoggerFactory.getLogger(Message.class.getName());
+    private static final Logger logger = LoggerFactory.getLogger(Packet.class.getName());
 
     private static final int DEFAULT_MESSAGE_SIZE = 60;
 
@@ -48,15 +48,15 @@ public class NioClient implements Runnable {
 
     public static void main(String[] args) {
         try {
-            NioClient client = new NioClient("localhost", 8000);
+            /*NioClient client = new NioClient("localhost", 8000);
             client.work();
-            client.receiver.start();
+            client.receiver.start();*/
 
-            /*for (int i=0; i<3; i++) {
+            for (int i=0; i<1; i++) {
                 NioClient client = new NioClient("localhost", 8000);
                 Thread thread = new Thread(client);
                 thread.start();
-            }*/
+            }
         } catch (IOException e) {
             logger.error("Unable to connect to server: ", e);
         }
@@ -101,13 +101,13 @@ public class NioClient implements Runnable {
                 }
 
                 byte[] messageBody = userMessage.getBytes("UTF-8");
-                Message message = new Message(this.MESSAGE_SIZE);
-                message.setMessage(i,0, messageBody);
+                Packet packet = new Packet(this.MESSAGE_SIZE);
+                packet.setPacket(0, messageBody);
 
-                this.dos.write(message.getByteArrayMessage());
+                this.dos.write(packet.getByteArrayMessage());
                 this.dos.flush();
 
-                System.out.println(Thread.currentThread().getName() + " [" + message.getMessageId() + "] send: " + message);
+                System.out.println(Thread.currentThread().getName() + " [" + i + "] send: " + packet);
             } catch (IOException e) {
                 logger.error("Connection lost: ", e);
                 System.exit(0);
@@ -125,6 +125,7 @@ public class NioClient implements Runnable {
 
     public void work() {
         System.out.println("Client started");
+        int counter = 0;
 
         while(true) {
             String userMessage = null;
@@ -140,21 +141,21 @@ public class NioClient implements Runnable {
                     break;
                 }
                 if(userMessage == null || userMessage.length() == 0) {
-                    logger.debug("Wrong message. Try again");
-                    System.out.println("Wrong message. Try again");
+                    logger.debug("Wrong packet. Try again");
+                    System.out.println("Wrong packet. Try again");
                     continue;
                 }
 
                 byte[] messageBody = userMessage.getBytes("UTF-8");
-                Message message = new Message(this.MESSAGE_SIZE);
-                message.setMessage(0, messageBody);
+                Packet packet = new Packet(this.MESSAGE_SIZE);
+                packet.setPacket(0, messageBody);
 
-                this.dos.write(message.getByteArrayMessage());
+                this.dos.write(packet.getByteArrayMessage());
                 this.dos.flush();
 
-                System.out.println("[" + message.getMessageId() + "] Message was send: " + message);
+                System.out.println("[" + counter++ + "] Packet was send: " + packet);
 
-                if("quit".equals(message.getMessage().toLowerCase())) {
+                if("quit".equals(packet.getPacketBodyStr().toLowerCase())) {
                     System.out.println("Shutdown client");
                     return;
                 }
@@ -173,14 +174,14 @@ public class NioClient implements Runnable {
         @Override
         public void run() {
             System.out.println("Receiver started");
-            Message message = null;
+            Packet packet = null;
             int hasBytes = -1; // хранит кол-во не обработанных байт в буфере
 
             try {
                 // создаём экземпляр сообщения
-                message = new Message(MESSAGE_SIZE);
+                packet = new Packet(MESSAGE_SIZE);
             } catch (IOException e) {
-                logger.error("Create Message instance error");
+                logger.error("Create Packet instance error");
                 return;
             }
 
@@ -188,7 +189,7 @@ public class NioClient implements Runnable {
             while (!socket.isClosed()) {
                 try {
                     // ждем пока придёт хотя бы заголовок сообщения
-                    if (dis.available() < Message.HEADER_SIZE && hasBytes == 0) {
+                    if (dis.available() < Packet.HEADER_SIZE && hasBytes == 0) {
                         Thread.sleep(10);
                         continue;
                     }
@@ -201,22 +202,22 @@ public class NioClient implements Runnable {
                 try {
                     byte[] buffer;
                     // Создаём буффер для чтения сообщения нужной длинны
-                    if((message.readBuffer.position() + dis.available()) > MESSAGE_SIZE)
-                        buffer = new byte[MESSAGE_SIZE - message.readBuffer.position()];
+                    if((packet.readBuffer.position() + dis.available()) > MESSAGE_SIZE)
+                        buffer = new byte[MESSAGE_SIZE - packet.readBuffer.position()];
                     else buffer = new byte[MESSAGE_SIZE];
 
                     read = dis.read(buffer); // читаем и потока в буфер
 
-                    message.readBuffer.put(buffer,0, read); // сохраняем в буфер Message
+                    packet.readBuffer.put(buffer,0, read); // сохраняем в буфер Packet
                     hasBytes = 0;
 
                     do {
-                        int position = message.readBuffer.position(); // запоминаем текущее положение буфера
-                        message.readBuffer.position(0); // устанавливаем метку в 0 для чтения длинны сообщения
-                        int messageLength = message.readBuffer.getInt(); // читаем длинну сообщения
+                        int position = packet.readBuffer.position(); // запоминаем текущее положение буфера
+                        packet.readBuffer.position(0); // устанавливаем метку в 0 для чтения длинны сообщения
+                        int messageLength = packet.readBuffer.getInt(); // читаем длинну сообщения
 
                         // Проверка валидности длинны сообщения (0 < messageLength < размер буфера)
-                        if(messageLength <= 0 || messageLength > (MESSAGE_SIZE - Message.LENGTH_SIZE)) {
+                        if(messageLength <= 0 || messageLength > (MESSAGE_SIZE - Packet.LENGTH_SIZE)) {
                             // Длинна пакета не верная.  Прерываем цикл обработки буфера.
                             logger.error("Wrong packet size. May be packet is corrupt");
                             System.out.println("Wrong packet size. May be packet is corrupt");
@@ -224,33 +225,33 @@ public class NioClient implements Runnable {
                         }
 
                         // Проеряем пришло ли сообщение полностью
-                        if (messageLength <= (position - Message.LENGTH_SIZE)) {
-                            message.readBuffer(messageLength); // читаем сообщение в Message
-                            System.out.println(Thread.currentThread().getName() + " [" + message.getMessageId() + "] receive: " + message);
+                        if (messageLength <= (position - Packet.LENGTH_SIZE)) {
+                            packet.readBuffer(messageLength); // читаем сообщение в Packet
+                            System.out.println(Thread.currentThread().getName() + " [" + 0 + "] receive: " + packet);
 
                             // Определяем сколько ещё байтов в буфере
-                            hasBytes = (position - Message.LENGTH_SIZE) - messageLength;
+                            hasBytes = (position - Packet.LENGTH_SIZE) - messageLength;
 
                             // Если > 0, то нужно будет читать ещё
                             if (hasBytes > 0) {
-                                message.readBuffer.position(hasBytes);
-                                if(hasBytes < Message.LENGTH_SIZE)
-                                    message.readBuffer.limit(MESSAGE_SIZE);
+                                packet.readBuffer.position(hasBytes);
+                                if(hasBytes < Packet.LENGTH_SIZE)
+                                    packet.readBuffer.limit(MESSAGE_SIZE);
                                 else
-                                    message.readBuffer.limit(hasBytes);
+                                    packet.readBuffer.limit(hasBytes);
 
-                                System.out.println(Thread.currentThread().getName() + " [" + message.getMessageId() + "] left bytes: "
-                                        + ((position - Message.LENGTH_SIZE) - messageLength));
+                                System.out.println(Thread.currentThread().getName() + " [" + 0 + "] left bytes: "
+                                        + ((position - Packet.LENGTH_SIZE) - messageLength));
                             }
                         } else {
                             // Сообщение пришло не полностью
-                            message.readBuffer.position(position);
-                            message.readBuffer.limit(MESSAGE_SIZE);
+                            packet.readBuffer.position(position);
+                            packet.readBuffer.limit(MESSAGE_SIZE);
                             hasBytes = position;
-                            System.out.println(Thread.currentThread().getName() + " [" + message.getMessageId() + "] Message is not full");
+                            System.out.println(Thread.currentThread().getName() + " [" + 0 + "] Packet is not full");
                             break;
                         }
-                    } while (hasBytes >= Message.LENGTH_SIZE);
+                    } while (hasBytes >= Packet.LENGTH_SIZE);
                 } catch (IOException e) {
                     logger.error("Exception: ", e);
                     break;

@@ -2,7 +2,6 @@ package server;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
 
 import java.io.IOException;
 import java.net.BindException;
@@ -11,9 +10,7 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
-import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class NioServer implements Runnable {
@@ -21,13 +18,9 @@ public class NioServer implements Runnable {
 
     private final String IP; // адрес сервера
     private final int PORT; // порт сервера
-    private final int clientThreadCount;
-    private final int clientThreadMaxCount;
-    private final int clientThreadKeepalive;
-
-    private static final AtomicReference<NioServer.State> state = new AtomicReference<>(NioServer.State.STOPPED); // переключатель состояния сервера
 
     private enum State {STOPPED, STOPPING, RUNNING} // возможные состояния сервера
+    private static final AtomicReference<NioServer.State> state = new AtomicReference<>(NioServer.State.STOPPED); // переключатель состояния сервера
 
     public NioServer(int port) {
         this("localhost", port);
@@ -36,10 +29,6 @@ public class NioServer implements Runnable {
     public NioServer(String ip, int port) {
         this.IP = ip;
         this.PORT = port;
-        AppSettings config = AppSettings.getInstance();
-        this.clientThreadCount = config.CLIENT_THREAD_COUNT;
-        this.clientThreadMaxCount = config.CLIENT_THREAD_MAX_COUNT;
-        this.clientThreadKeepalive = config.CLIENT_THREAD_KEEPALIVE;
     }
 
     @Override
@@ -53,16 +42,6 @@ public class NioServer implements Runnable {
 
         Selector selector = null;   // селектор
         ServerSocketChannel serverChannel = null; // канал сервера
-
-        // создаём менеджер потоков для обработки вх. сообщений в отдельных потоках
-        final ThreadPoolExecutor executor = new ThreadPoolExecutor(
-                this.clientThreadCount, // обычное кол-во потоков в пуле
-                this.clientThreadMaxCount, // макс. кол-во потоков в пуле
-                this.clientThreadKeepalive, // время которое живёт ничего не делающий поток
-                TimeUnit.MILLISECONDS, // единицы измерения времени
-                new LinkedBlockingQueue<Runnable>(), // тип экземпляра
-                new ThreadPoolExecutor.CallerRunsPolicy() // политика
-        );
 
         try {
             selector = Selector.open(); // создаём селектор
@@ -98,32 +77,20 @@ public class NioServer implements Runnable {
                         clientChannel.socket().setTcpNoDelay(true); // отключаем алгоритм оптимизации
                         // регистрируем канал клиента в селекторе и устанавливаем флаг ожидания чтения данных
                         SelectionKey clientKey = clientChannel.register(selector, SelectionKey.OP_READ);
-
-                        try {
-                            // регистрируем сессию клиента для дальнейшей работы
-                            NioServerClient client = new NioServerClient(clientKey);
-                            logger.info("New client connected. ID={}", client.getClientId());
-                        } catch(IOException ex) {
-                            logger.info("Selection key is canceled {}", clientKey);
-                        }
+                        ClientManager.registerNewClient(clientKey);
                     }
 
                     // Если установлен флаг OP_READ (читаем вх. сообщения)
                     if (key.isValid() && key.isReadable()) {
-                        NioServerClient client = getClientByKey(key); // определяем сессию клиента по ключу
-                        if(client.read() == 1) // читаем данные
-                            executor.execute(client); // запускаем обработку сообщения в отдельном потоке
+                        ClientManager.readClientChannel(key);
                     }
 
                     // Если установлен флаг OP_WRITE (отправляем сообщения)
                     if (key.isValid() && key.isWritable()) {
-                        NioServerClient client = getClientByKey(key); // определяем сессию клиента по ключу
-                        client.write(); // отправляем данные
+                        ClientManager.writeClientChannel(key);
                     }
                 }
             }
-
-
         } catch (BindException e) {
             logger.error("Port already used: ", e);
         } catch (IOException e) {
@@ -133,7 +100,7 @@ public class NioServer implements Runnable {
                 selector.close(); // закрываем селектор
                 serverChannel.socket().close(); // закрываем сокет канала сервера
                 serverChannel.close(); // закрываем канал сервера
-                executor.shutdown();
+                ClientManager.closeAllClientChannels();
 
                 state.set(NioServer.State.STOPPED); // устанавливает статус сервера в STOPPED
                 logger.info("Server is stopped");
@@ -143,22 +110,11 @@ public class NioServer implements Runnable {
         }
     }
 
-    // Получаем объект клиента по ключу селектора
-    private NioServerClient getClientByKey(SelectionKey key) {
-        return SessionManager.getClientByKey(key);
-    }
-
     public void setState(State state) {
         NioServer.state.set(state);
     }
 
     public void shutdown() {
-        SessionManager.removeAllSessions();
         this.setState(State.STOPPING);
-        return;
-    }
-
-    public ArrayList<String> getSessionlist() {
-        return SessionManager.getSessionList();
     }
 }
